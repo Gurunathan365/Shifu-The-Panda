@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projectile Challenge</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background-color: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; }
+        h1 { text-align: center; color: #333; }
+        .game-screen { display: flex; flex-wrap: wrap; gap: 20px; }
+        #gameCanvas { width: 100%; height: 400px; background-color: #f0f8ff; border: 2px solid #333; border-radius: 4px; position: relative; overflow: hidden; }
+        .control-panel { width: 100%; display: flex; gap: 20px; }
+        .game-controls { flex: 1; padding: 15px; background-color: #f1f8e9; border-radius: 4px; border: 1px solid #ddd; }
+        .code-editor { flex: 2; display: flex; flex-direction: column; }
+        textarea { width: 100%; height: 200px; font-family: monospace; padding: 10px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; background-color: #2b2b2b; color: #f8f8f2; }
+        button { margin-top: 10px; padding: 10px 15px; background-color: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 16px; }
+        button:hover { background-color: #388e3c; }
+        .level-info { margin-bottom: 15px; padding: 10px; background-color: #e8f5e9; border-radius: 4px; border: 1px solid #c8e6c9; }
+        
+        .target { position: absolute; width: 24px; height: 24px; background-color: #f44336; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5); border-radius: 50%; transform: translate(-50%, 50%); z-index: 10; }
+        .target::after { content: ''; position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background-color: white; border-radius: 50%; transform: translate(-50%, -50%); }
+        .ground { position: absolute; background-color: #5d4037; height: 8px; bottom: 0; left: 0; width: 100%; z-index: 2; }
+        
+        .obstacle { 
+            position: absolute; border: 2px solid #000; box-shadow: 3px 3px 8px rgba(0,0,0,0.4); z-index: 5;
+            background: repeating-linear-gradient(-45deg, #ffeb3b, #ffeb3b 10px, #212121 10px, #212121 20px);
+        }
+        .obstacle::before { content: ''; position: absolute; top: -5px; left: -2px; right: -2px; height: 5px; background-color: #424242; border: 1px solid #000; }
+        
+        .missed-point { position: absolute; width: 12px; height: 12px; background-color: #ff9800; border: 2px solid white; border-radius: 50%; transform: translate(-50%, 50%); z-index: 20; box-shadow: 0 0 4px black; }
+        .projectile-path { position: absolute; width: 6px; height: 6px; background-color: #1565c0; border-radius: 50%; transform: translate(-50%, 50%); z-index: 8; }
+        
+        .grid-line-v, .grid-line-h { position: absolute; pointer-events: none; z-index: 1; }
+        .grid-line-v { border-left: 1px solid rgba(0,0,0,0.25); height: 100%; bottom: 0; }
+        .grid-line-h { border-bottom: 1px solid rgba(0,0,0,0.25); width: 100%; left: 0; }
+        .grid-label { position: absolute; font-size: 10px; font-weight: bold; color: #666; pointer-events: none; z-index: 1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Projectile Challenge</h1>
+        <div class="game-screen">
+            <div id="gameCanvas"></div>
+            <div class="control-panel">
+                <div class="game-controls">
+                    <div class="level-info">
+                        <h3 id="levelTitle">Level 1</h3>
+                        <p>Distance: <span id="targetDistance">0</span> m</p>
+                        <p>Height: <span id="targetHeight">0</span> m</p>
+                        <p>Result: <span id="processedDistance">-</span> m</p>
+                        <p id="missedInfo" style="display: none;">Missed by: <span id="missedDistance">0</span> m</p>
+                        <div id="obstacleInfo" style="display:none; color: #d32f2f; margin-top: 10px; padding: 5px; background: #ffebee; border: 1px solid #ef5350; border-radius: 4px;">
+                            <strong>⚠️ OBSTACLE DETECTED</strong><br>Range: <span id="obsRange"></span>m | Height: <span id="obsHeight"></span>m
+                        </div>
+                        <div style="margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px;">
+                            <label style="font-weight: bold; color: #555;">Jump to Level:</label>
+                            <select id="levelSelect" style="width: 100%; padding: 5px; margin-top: 5px;"></select>
+                        </div>
+                    </div>
+                </div>
+                <div class="code-editor">
+                    <h3>Enter Your Code:</h3>
+                    <textarea id="codeInput"></textarea>
+                    <button id="submitButton">Launch Projectile</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const levels = [
+            // L1-L4: Hidden Transforms
+            { d: 111, h: 0, t: (s, c) => [s-7, c], tol: 0.5 },
+            { d: 194, h: 30, t: (s, c) => [s+23, c], tol: 0.5 },
+            { d: 116, h: 0, t: (s, c) => [s, c-0.1], tol: 0.5 },
+            { d: 142, h: 40, t: (s, c) => [s, c+0.05], tol: 0.5 },
+            // L5-L8: Scaling
+            { d: 136, h: 0, t: (s, c) => [s*1.25, c], tol: 0.5 },
+            { d: 154, h: 0, t: (s, c) => [s, c*0.5], tol: 0.5 },
+            { d: 152, h: 60, t: (s, c) => [s*0.8, c], tol: 0.5 },
+            { d: 179, h: 25, t: (s, c) => [s, c*0.75], tol: 0.5 },
+            // L9-L12: Zonal Drift
+            { d: 150, h: 45, t: (s, c) => [2*s+3, c], tol: 0.5 },
+            { d: 150, h: 45, t: (s, c) => [3*s-2, c], tol: 0.5 },
+            { d: 180, h: 65, t: (s, c) => [1.5*s+3, c], tol: 0.5 },
+            { d: 180, h: 65, t: (s, c) => [3*s-1.5, c], tol: 0.5 },
+            // L13-L14: Obstacles (Dead Zone)
+            { d: 117.6, h: 0, ox: 58.8, oy: 39, t: (s, c) => {
+                let st = (s > 30 && s < 40) ? 30 : s; return [(s === 35) ? st + 5 : st, c];
+            }, tol: 0.5 },
+            { d: 185.856, h: 0, ox: 92.928, oy: 34.5, t: (s, c) => {
+                let st = (s > 40 && s < 45) ? 50 : s; return [(s === 44) ? st + 4 : st, c];
+            }, tol: 0.5 },
+            // L15-L18: Ux/Uy Inputs
+            { d: 137, h: 15, t: (x, y) => [x-14, y], tol: 0.5 },
+            { d: 182, h: 55, t: (x, y) => [x, y+8], tol: 0.5 },
+            { d: 169, h: 65, t: (x, y) => [x*1.75, y], tol: 0.5 },
+            { d: 107, h: 35, t: (x, y) => [x, y*0.9], tol: 0.5 }
+        ];
+
+        let currLvl = 0, procDist = null, sX, sY, missPt = null, path = [], hitObs = false;
+        
+        // DOM Elements
+        const els = {
+            canvas: document.getElementById('gameCanvas'),
+            title: document.getElementById('levelTitle'),
+            dist: document.getElementById('targetDistance'),
+            hgt: document.getElementById('targetHeight'),
+            pDist: document.getElementById('processedDistance'),
+            missInfo: document.getElementById('missedInfo'),
+            missVal: document.getElementById('missedDistance'),
+            obsInfo: document.getElementById('obstacleInfo'),
+            obsR: document.getElementById('obsRange'),
+            obsH: document.getElementById('obsHeight'),
+            input: document.getElementById('codeInput'),
+            sel: document.getElementById('levelSelect')
+        };
+
+        const placeholders = {
+            basic: `// Enter initial speed (u) and cos(theta)\n// u = 50;\n// costheta = 0.8;\n// inverseu = u;\n// inversecostheta = costheta;`,
+            adv: `// Enter Ux, Uy\n// ux = 10;\n// uy = 45;\n// inverseux = ux;\n// inverseuy = uy;`
+        };
+
+        function createEl(cls, x, y, w, h, txt, css) {
+            const el = document.createElement('div');
+            el.className = cls;
+            if(x!==undefined) el.style.left = x + 'px';
+            if(y!==undefined) el.style.bottom = y + 'px';
+            if(w) el.style.width = w + 'px';
+            if(h) el.style.height = h + 'px';
+            if(txt) el.innerText = txt;
+            if(css) Object.assign(el.style, css);
+            els.canvas.appendChild(el);
+            return el;
+        }
+
+        function init() {
+            levels.forEach((l, i) => {
+                const opt = document.createElement('option');
+                opt.value = i; opt.text = `Level ${i + 1}${l.ox ? " ⚠️" : ""}`;
+                els.sel.appendChild(opt);
+            });
+            els.sel.addEventListener('change', (e) => {
+                currLvl = +e.target.value; reset(); updateUI(); draw();
+            });
+            document.getElementById('submitButton').addEventListener('click', runSim);
+            updateUI(); draw();
+        }
+
+        function reset() { procDist = null; path = []; missPt = null; hitObs = false; els.input.value = ''; }
+
+        function updateUI() {
+            const l = levels[currLvl];
+            els.title.textContent = `Level ${currLvl + 1}`;
+            els.sel.value = currLvl;
+            els.dist.textContent = l.d; els.hgt.textContent = l.h;
+            els.pDist.textContent = procDist ?? '-';
+            els.input.placeholder = currLvl >= 14 ? placeholders.adv : placeholders.basic;
+            
+            els.missInfo.style.display = missPt ? 'block' : 'none';
+            if(missPt) els.missVal.textContent = hitObs ? "Hit Obstacle" : Math.abs(procDist - l.d).toFixed(2);
+            
+            els.obsInfo.style.display = l.ox ? 'block' : 'none';
+            if(l.ox) { els.obsR.textContent = l.ox; els.obsH.textContent = l.oy; }
+        }
+
+        function draw() {
+            els.canvas.innerHTML = '';
+            const l = levels[currLvl];
+            const maxD = Math.max(l.d * 1.2, 200);
+            const maxH = Math.max(Math.max(l.h, l.oy || 0) * 1.5, 100);
+            const scX = els.canvas.offsetWidth / maxD, scY = (els.canvas.offsetHeight * 0.9) / maxH;
+
+            // Draw Grid
+            for(let x=0; x<=maxD; x+=20) {
+                createEl('grid-line-v', x*scX, 0);
+                createEl('grid-label', x*scX+2, 2, 0, 0, x+'m');
+            }
+            for(let y=0; y<=maxH; y+=20) {
+                createEl('grid-line-h', 0, y*scY);
+                if(y>0) createEl('grid-label', 2, y*scY+2, 0, 0, y+'m');
+            }
+
+            createEl('ground');
+            createEl('target', l.d*scX, l.h*scY);
+            
+            if(l.ox) {
+                const w = Math.max(1*scX, 20), cx = (l.ox*scX) - (w/2) + (scX/2);
+                const el = createEl('obstacle', cx, 0, w, l.oy*scY);
+                el.title = `Wall: ${l.oy}m`;
+            }
+
+            path.forEach(p => createEl('projectile-path', p.x*scX, p.y*scY));
+            if(missPt) createEl('missed-point', missPt.x*scX, missPt.y*scY);
+        }
+
+        function runSim() {
+            try {
+                hitObs = false;
+                const isAdv = currLvl >= 14;
+                const vars = isAdv ? ['ux','uy','inverseux','inverseuy'] : ['u','costheta','inverseu','inversecostheta'];
+                
+                const fn = new Function(`let ${vars.join(',')}; ${els.input.value}; return {${vars.join(',')}};`);
+                const res = fn();
+                
+                if(vars.some(v => res[v]===undefined)) throw new Error(`Define ${vars.join(', ')}`);
+                
+                const tf = levels[currLvl].t(res[vars[2]], res[vars[3]]); // Apply transform
+                
+                if(isAdv) { sX = tf[0]; sY = tf[1]; }
+                else {
+                    if(res.costheta<=0 || res.costheta>=1) throw new Error("0 < costheta < 1");
+                    sX = tf[0] * tf[1]; sY = tf[0] * Math.sqrt(1 - tf[1]**2);
+                }
+
+                const obsCol = calcPath();
+                const g=9.8, tX = levels[currLvl].d/sX, hX = sY*tX - 0.5*g*tX*tX;
+                const tof = (2*sY)/g, rng = sX*tof;
+                procDist = rng.toFixed(2);
+
+                if(!obsCol && Math.abs(rng - levels[currLvl].d) <= levels[currLvl].tol && Math.abs(hX - levels[currLvl].h) <= levels[currLvl].tol) {
+                    missPt = null; updateUI(); draw();
+                    setTimeout(() => { alert("Success!"); currLvl = (currLvl+1)%levels.length; reset(); updateUI(); draw(); }, 50);
+                } else {
+                    hitObs = obsCol;
+                    missPt = obsCol ? null : { x: sY===0 ? 0 : levels[currLvl].d, y: sY===0 ? 0 : hX };
+                    updateUI(); draw();
+                    setTimeout(() => alert(obsCol ? "Hit Obstacle!" : "Missed!"), 50);
+                }
+            } catch(e) { alert("Error: " + e.message); }
+        }
+
+        function calcPath() {
+            path = [];
+            const l = levels[currLvl], g = 9.8, dt = 0.02, maxT = (2*sY)/g * 1.5;
+            for(let t=0; t<=maxT; t+=dt) {
+                const x = sX*t, y = sY*t - 0.5*g*t*t;
+                if(y < -10) break;
+                if(Math.round(t*100)%10 === 0) path.push({x, y});
+                if(l.ox && x>=l.ox && x<=l.ox+1 && y>=0 && y<=l.oy) {
+                    missPt = {x, y}; return true;
+                }
+            }
+            return false;
+        }
+
+        init();
+    </script>
+</body>
+</html>
